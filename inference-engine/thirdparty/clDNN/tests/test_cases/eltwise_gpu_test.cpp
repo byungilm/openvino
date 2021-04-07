@@ -3817,8 +3817,8 @@ struct eltwise_random_test : testing::TestWithParam<eltwise_random_test_params>
         auto cfg = get_engine_config(true, "/home/byungilm/work/dump/cldnn_dump");
         auto eng = cldnn::engine(cfg);
 
-        auto in_layout1 = layout(params.input_type, /*format::bfyx*/params.in_format, params.first_input_size);
-        auto in_layout2 = layout(params.input_type, /*format::bfyx*/params.in_format, params.second_input_size);
+        auto in_layout1 = layout(params.input_type, params.in_format, params.first_input_size);
+        auto in_layout2 = layout(params.input_type, params.in_format, params.second_input_size);
         auto input1 = memory::allocate(eng, in_layout1);
         auto input2 = memory::allocate(eng, in_layout2);
         fill_random(input1);
@@ -3875,7 +3875,7 @@ struct eltwise_random_test : testing::TestWithParam<eltwise_random_test_params>
         auto buildops_opt = build_options();
         // buildops_opt.set_option(build_option::optimize_data(true));
         buildops_opt.set_option(build_option::outputs({"eltwise_opt"}));
-        // buildops_opt.set_option(build_option::force_implementations({ {"eltwise_opt", {params.in_format, "eltwise_b_fs_yx_fsv4"}} }));
+        // buildops_opt.set_option(build_option::force_implementations({ {"eltwise_opt", {params.in_format, "eltwise_b_fs_yx_fsv4"}} }));        buildops_opt.set_option(build_option::force_implementations({ {"eltwise_opt", {params.in_format, "eltwise_b_fs_yx_fsv4"}} }));
 
         auto net_opt = network(eng_opt, topo_opt, buildops_opt);
         net_opt.set_input_data("input1", input1);
@@ -3974,13 +3974,21 @@ struct eltwise_random_test_param_generator : std::vector<eltwise_random_test_par
 
 TEST_P(eltwise_random_test, random) {
     auto param = GetParam();
-    execute_compare(param, true, false);
+    execute_compare(param, false, false);
 }
 
 INSTANTIATE_TEST_CASE_P(eltwise_smoke,
                         eltwise_random_test,
                         testing::ValuesIn(
                             eltwise_random_test_param_generator()
-                            .broadcast_params(data_types::f32, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
-                            .simple_params(data_types::f32, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .broadcast_params(data_types::f32, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .broadcast_params(data_types::f16, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .broadcast_params(data_types::i8, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .broadcast_params(data_types::u8, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .simple_params(data_types::f32, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .simple_params(data_types::f16, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .simple_params(data_types::i8, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            // .simple_params(data_types::u8, format::b_fs_yx_fsv4, format::b_fs_yx_fsv4)
+                            .simple_params(data_types::i8, format::b_fs_yx_fsv16, format::b_fs_yx_fsv16)
+                            // .simple_params(data_types::u8, format::b_fs_yx_fsv16, format::b_fs_yx_fsv16)
                         ), );

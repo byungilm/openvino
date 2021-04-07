@@ -195,16 +195,19 @@ JitConstants EltwiseKernel_b_fs_yx_fsv4::MakeLoadJitConstants(const eltwise_para
                                 //                             "\\\n\ttmp_b" + std::to_string(op_num) +
                                 //                             " = sub_group_broadcast(tmp_b" + std::to_string(op_num) + ", 0);";
                                 std::string broadcast_value = "\\\n\tMAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, 4) tmp_b" + std::to_string(op_num) +
-                                                            " = (" + toCLType(params.inputs[input.index].GetDType()) + "4)input" + std::to_string(input.index) +
-                                                            "[GET_INDEX(INPUT, " + std::to_string(input.index) + ", " + idx_order + ")];";
+                                //                            " = (" + toCLType(params.inputs[input.index].GetDType()) + "4)(input" + std::to_string(input.index) +
+                                                            " = " "(MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, 4))"+"(input" + std::to_string(input.index) +
+                                //                            " = " + "TO_TYPE(MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, " + std::to_string(vec_size) + "), &input" + std::to_string(input.index) +
+                                                            "[GET_INDEX(INPUT, " + std::to_string(input.index) + ", " + idx_order + ")]);";
 
                                 jit.AddConstant(MakeJitConstant(broadcast_name, broadcast_value));
                                 jit.AddConstant(MakeJitConstant(name, "tmp_b" + std::to_string(op_num)));
                             } else {
                                 const std::string vload_name = "DO_VLOAD" + std::to_string(op_num) + "_" + std::to_string(input_idx);
                                 const std::string vload_value = "\\\n\tMAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, 4) tmp_a" + std::to_string(op_num) + "_" + std::to_string(input_idx) +
-                                                                " = vload4(0, &input" + std::to_string(input.index) +
-                                                                "[GET_INDEX(INPUT," + std::to_string(input.index) + ", " + idx_order + ")]);";
+                                //                                " = vload4(0, &input" + std::to_string(input.index) +
+                                                                " = TO_TYPE(MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, " + std::to_string(vec_size) + "), vload4(0, &input" + std::to_string(input.index) +
+                                                                "[GET_INDEX(INPUT," + std::to_string(input.index) + ", " + idx_order + ")]));";
 
                                 jit.AddConstant(MakeJitConstant(vload_name, vload_value));
                                 jit.AddConstant(MakeJitConstant(name, "tmp_a" + std::to_string(op_num) + "_" + std::to_string(input_idx)));
@@ -289,6 +292,7 @@ JitConstants EltwiseKernel_b_fs_yx_fsv4::GetJitConstants(const eltwise_params& p
     }
 
     jit.AddConstant(MakeJitConstant("ELTWISE_BROADCAST", params.broadcast));
+    jit.AddConstant(MakeJitConstant("QUANTIZATION_TERM", params.int8_quantization));
     jit.AddConstant(MakeJitConstant("VEC_SIZE", vec_size));
 
     printf(">> Eltwise Kernel Opt fsv4 DataLayout: (input: %d, output: %d)\n", (int)(params.inputs[0].GetLayout()), (int)(params.output.GetLayout()));

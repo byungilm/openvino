@@ -52,27 +52,41 @@ KERNEL(eltwise_b_fs_yx_fsv4)(INPUTS_DECLS
     MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, VEC_SIZE) res;
 
     DO_ELTWISE
-
+    int temp = 0;
+// #if HAS_FUSED_OPS
+//     FUSED_OPS;
+//     OUTPUT_TYPE_BLOCK out = TO_TYPE(MAKE_VECTOR_TYPE(OUTPUT_TYPE, VEC_SIZE), FUSED_OPS_RESULT);
+// #else
+//     OUTPUT_TYPE_BLOCK out = ACTIVATION_TYPED(TO_TYPE(MAKE_VECTOR_TYPE(OUTPUT_TYPE, VEC_SIZE), res), ACTIVATION_PARAMS_TYPED);
+// #endif
 #if HAS_FUSED_OPS
     FUSED_OPS;
     OUTPUT_TYPE_BLOCK out = TO_TYPE(MAKE_VECTOR_TYPE(OUTPUT_TYPE, VEC_SIZE), FUSED_OPS_RESULT);
+    temp = 1;
+#else
+#if QUANTIZATION_TERM && !OUTPUT_IS_FP
+    OUTPUT_TYPE_BLOCK out;
+    for (uint fp = 0; fp < VEC_SIZE; fp++) {
+        out[fp] = TO_OUTPUT_TYPE_SAT(ACTIVATION(res[fp], ACTIVATION_PARAMS));
+    }
 #else
     OUTPUT_TYPE_BLOCK out = ACTIVATION_TYPED(TO_TYPE(MAKE_VECTOR_TYPE(OUTPUT_TYPE, VEC_SIZE), res), ACTIVATION_PARAMS_TYPED);
 #endif
-
-    // printf("f_block(%u) res[%.4f %.4f %.4f %.4f]\n", f_block, res[0], res[1], res[2], res[3]);
+#endif
 
 #ifdef LEFTOVERS
     if ((f_block*VEC_SIZE + VEC_SIZE) > OUTPUT_FEATURE_NUM) {
-        for (uint fp = 0; fp < VEC_SIZE; fp++) {
-            if (fp < OUTPUT_FEATURE_NUM % VEC_SIZE) {
-                output[OUTPUT_GET_INDEX(b, (f_block*VEC_SIZE)+fp, y, x)] = out[fp];
-            }
+        for (uint fp = OUTPUT_FEATURE_NUM % VEC_SIZE; fp < VEC_SIZE; fp++) {
+            // output[OUTPUT_GET_INDEX(b, (f_block*VEC_SIZE)+fp, y, x)] = out[fp];
+            out[fp] = OUTPUT_VAL_ZERO;
         }
-    } else
+    }
 #endif
-    {
-        // WRITE_FUNC(output, output_offset, out);
-        vstore4(out, 0, &output[OUTPUT_GET_INDEX(b, (f_block*VEC_SIZE), y, x)]);
+
+    vstore4(out, 0, &output[OUTPUT_GET_INDEX(b, (f_block*VEC_SIZE), y, x)]);
+
+    if (f_block == 1) {
+        // printf("f_block(%u) res[%d %d %d %d] out[%d %d %d %d]\n", f_block, (int)res[0], (int)res[1], (int)res[2], (int)res[3], (int)out[0], (int)out[1], (int)out[2], (int)out[3]);
+        printf("FUSED(%d) f_block(%u) res[%.4f %.4f %.4f %.4f] out[%.4f %.4f %.4f %.4f]\n", temp, f_block, (float)res[0], (float)res[1], (float)res[2], (float)res[3], (float)out[0], (float)out[1], (float)out[2], (float)out[3]);
     }
 }
