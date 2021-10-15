@@ -548,6 +548,8 @@ void clDNNEngine::UpdateConfig(CLDNNPlugin::Config& conf, const InferenceEngine:
     OV_ITT_SCOPED_TASK(itt::domains::CLDNNPlugin, "clDNNEngine::UpdateConfig");
     auto device_info = GetDeviceInfo(params);
     conf.enableInt8 = device_info.supports_imad || device_info.supports_immad;
+    std::cout << "supports_imad: " << std::to_string(device_info.supports_imad) << std::endl;
+    std::cout << "supports_immad: " << std::to_string(device_info.supports_immad) << std::endl;
     conf.UpdateFromMap(params);
     if (conf.enableDynamicBatch) {
         conf.max_dynamic_batch = static_cast<int>(network.getBatchSize());
