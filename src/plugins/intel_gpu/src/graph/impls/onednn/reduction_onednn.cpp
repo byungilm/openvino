@@ -45,8 +45,8 @@ protected:
             alg,
             input_md,
             output_md,
-	    0.0f,
-	    0.0f);
+	        0.0f,
+	        0.0f);
     }
 
 public:
