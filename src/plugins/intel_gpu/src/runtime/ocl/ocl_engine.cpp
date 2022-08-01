@@ -54,8 +54,11 @@ ocl_engine::ocl_engine(const device::ptr dev, runtime_types runtime_type,
     _usm_helper.reset(new cl::UsmHelper(get_cl_context(), get_cl_device(), use_unified_shared_memory()));
 
 #ifdef ENABLE_ONEDNN_FOR_GPU
-    _onednn_engine = std::make_shared<dnnl::engine>(dnnl::ocl_interop::make_engine(casted->get_device().get(), casted->get_context().get()));
+    auto info = dev->get_info();
+    if (info.supports_immad == true)
+        _onednn_engine = std::make_shared<dnnl::engine>(dnnl::ocl_interop::make_engine(casted->get_device().get(), casted->get_context().get()));
 #endif
+
     _program_stream.reset(new ocl_stream(*this));
 }
 
