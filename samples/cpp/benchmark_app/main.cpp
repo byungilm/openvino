@@ -439,7 +439,7 @@ int main(int argc, char* argv[]) {
             auto startTime = Time::now();
             compiledModel = core.compile_model(FLAGS_m, device_name);
             auto duration_ms = get_duration_ms_till_now(startTime);
-            slog::info << "Load network took " << double_to_string(duration_ms) << " ms" << slog::endl;
+            slog::info << ">>>> 442 : Load network took " << double_to_string(duration_ms) << " ms" << slog::endl;
             slog::info << "Original network I/O parameters:" << slog::endl;
             printInputAndOutputsInfoShort(compiledModel);
 
@@ -619,10 +619,13 @@ int main(int argc, char* argv[]) {
             // ----------------- 7. Loading the model to the device
             // --------------------------------------------------------
             next_step();
+            std::cout << ">>> core.compile_model : Go " << std::endl;
             startTime = Time::now();
             compiledModel = core.compile_model(model, device_name);
             duration_ms = get_duration_ms_till_now(startTime);
-            slog::info << "Load network took " << double_to_string(duration_ms) << " ms" << slog::endl;
+            std::cout << ">>> core.compile_model : Done " << std::endl;
+
+            slog::info << ">>>> 625 : Load network took " << double_to_string(duration_ms) << " ms" << slog::endl;
             if (statistics)
                 statistics->add_parameters(
                     StatisticsReport::Category::EXECUTION_RESULTS,
@@ -674,6 +677,9 @@ int main(int argc, char* argv[]) {
             throw std::logic_error("Benchmarking of the model with dynamic shapes is available for async API only."
                                    "Please use -api async -nstreams 1 -nireq 1 to emulate sync behavior");
         }
+
+        // [TEMP]
+        // return 0;
 
         // Defining of benchmark mode
         // for static models inference only mode is used as default one

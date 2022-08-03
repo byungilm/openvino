@@ -286,7 +286,9 @@ IExecutableNetworkInternal::Ptr Plugin::LoadExeNetworkImpl(const InferenceEngine
         OV_ITT_SCOPED_TASK(itt::domains::intel_gpu_plugin, "Plugin::LoadExeNetworkImpl::CreateContext");
         std::lock_guard<std::mutex> lock(engine_mutex);
         if (!canReuseDefaultContext()) {
+            std::cout << " ---- Go : canReuseDefaultContext() : " << canReuseDefaultContext() << std::endl;
             m_defaultContext.reset(new RemoteCLContext(shared_from_this(), AnyMap(), conf));
+            std::cout << " ---- Done : canReuseDefaultContext() : " << canReuseDefaultContext() << std::endl;
         }
     }
 

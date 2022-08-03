@@ -294,6 +294,8 @@ ExecutionContextImpl::ExecutionContextImpl(const std::shared_ptr<IInferencePlugi
     int ctx_device_id = 0;
     int target_tile_id = -1;
 
+    std::cout << " >>> ExecutionContextImpl::ExecutionContextImpl " << std::endl;
+
     if (params.size()) {
         // parameter map is non-empty
         std::string contextTypeStr = _StrFromParams(params, GPU_PARAM_KEY(CONTEXT_TYPE));
@@ -345,6 +347,7 @@ ExecutionContextImpl::ExecutionContextImpl(const std::shared_ptr<IInferencePlugi
                                          m_config.kernels_cache_dir,
                                          m_config.throughput_streams),
                                      engine_params.task_executor);
+    std::cout << " >>> ExecutionContextImpl::ExecutionContextImpl - Done" << std::endl;
 }
 
 AnyMap ExecutionContextImpl::getParams() const {

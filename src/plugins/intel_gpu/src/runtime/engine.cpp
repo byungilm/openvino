@@ -243,8 +243,12 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type,
                                               const device::ptr device,
                                               const engine_configuration& configuration,
                                               const InferenceEngine::ITaskExecutor::Ptr task_executor) {
+    std::string type = ((engine_type == engine_types::ocl) ? "ocl " : "other");
+    std::cout << " >>> std::shared_ptr<cldnn::engine> engine::create : Go : " << type << std::endl;
     switch (engine_type) {
-        case engine_types::ocl: return ocl::create_ocl_engine(device, runtime_type, configuration, task_executor);
+        case engine_types::ocl:
+            std::cout << "  --- std::shared_ptr<cldnn::engine> engine::create : ocl hit " << std::endl;
+            return ocl::create_ocl_engine(device, runtime_type, configuration, task_executor);
         default: throw std::runtime_error("Invalid engine type");
     }
 }
