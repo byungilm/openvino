@@ -243,8 +243,21 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type,
                                               const device::ptr device,
                                               const engine_configuration& configuration,
                                               const InferenceEngine::ITaskExecutor::Ptr task_executor) {
+    device_query query(engine_type, runtime_type);
+
+    GPU_DEBUG_GET_INSTANCE(debug_config);
+    // device::ptr default_device = next(query.get_available_devices().begin(), 0)->second;
+    device::ptr default_device = next(query.get_available_devices().begin(), debug_config->test_device_index)->second;
+
+    const auto& info = default_device->get_info();
+    GPU_DEBUG_IF(debug_config->verbose >= 1 || debug_config->test_device_index) {
+        std::cout << " >> Device Index: " << debug_config->test_device_index << std::endl;
+        std::cout << " >> Selected Device: " << info.dev_name << std::endl;
+        std::cout << " >> Device support immad: " << (info.supports_immad ? "YES" : "NO") << std::endl;
+    }
+
     switch (engine_type) {
-        case engine_types::ocl: return ocl::create_ocl_engine(device, runtime_type, configuration, task_executor);
+        case engine_types::ocl: return ocl::create_ocl_engine(default_device, runtime_type, configuration, task_executor);
         default: throw std::runtime_error("Invalid engine type");
     }
 }
@@ -254,7 +267,15 @@ std::shared_ptr<cldnn::engine> engine::create(engine_types engine_type,
                                               const engine_configuration& configuration,
                                               const InferenceEngine::ITaskExecutor::Ptr task_executor) {
     device_query query(engine_type, runtime_type);
-    device::ptr default_device = query.get_available_devices().begin()->second;
+    GPU_DEBUG_GET_INSTANCE(debug_config);
+    // device::ptr default_device = query.get_available_devices().begin()->second;
+    device::ptr default_device = next(query.get_available_devices().begin(), debug_config->test_device_index)->second;
+
+    const auto& info = default_device->get_info();
+    GPU_DEBUG_IF(debug_config->verbose >= 1 || debug_config->test_device_index) {
+        std::cout << " >> Selected Device: " << info.dev_name << std::endl;
+        std::cout << " >> Device support immad: " << (info.supports_immad ? "YES" : "NO") << std::endl;
+    }
 
     return engine::create(engine_type, runtime_type, default_device, configuration, task_executor);
 }
