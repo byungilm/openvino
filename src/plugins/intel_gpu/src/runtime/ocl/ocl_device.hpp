@@ -29,6 +29,9 @@ public:
     cl_platform_id get_platform() const { return _platform; }
 
     bool is_same(const device::ptr other) override;
+    bool try_kernel_execution(kernel::ptr kernel) override;
+    int8_t get_subgroup_local_block_io_supported() override;
+    void set_subgroup_local_block_io_supported(bool support) override;
 
     ~ocl_device() = default;
 
@@ -38,6 +41,8 @@ private:
     cl_platform_id _platform;
     device_info _info;
     memory_capabilities _mem_caps;
+
+    int8_t _is_subgroup_local_block_io_supported;
 };
 
 }  // namespace ocl

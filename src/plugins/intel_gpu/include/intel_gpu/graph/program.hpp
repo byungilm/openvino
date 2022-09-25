@@ -255,6 +255,9 @@ public:
 
     void remove_kernel(kernel_id id);
 
+    bool is_local_block_io_supported() const;
+    void query_local_block_io_supported();
+
 private:
     uint32_t prog_id = 0;
     engine& _engine;
