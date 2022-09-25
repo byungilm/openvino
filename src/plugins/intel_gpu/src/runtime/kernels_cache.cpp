@@ -5,6 +5,7 @@
 #include "kernels_factory.hpp"
 #include "kernels_cache.hpp"
 #include "ocl/ocl_engine.hpp"
+#include "ocl/ocl_common.hpp"
 #include "intel_gpu/runtime/debug_configuration.hpp"
 #include "openvino/util/file_util.hpp"
 
@@ -134,8 +135,10 @@ void kernels_cache::get_program_source(const kernels_code& kernels_source_code, 
         auto& batches = std::get<1>(c.second);
         for (auto& b : batches) {
             std::string full_code = options + " " + _engine.get_device_info().driver_version;
+            full_code += _engine.get_device_info().dev_name;
             for (auto& ss : b.source)
                 full_code += ss;
+
             b.hash_value = std::hash<std::string>()(full_code);
             all_batches->push_back(b);
         }
@@ -179,7 +182,8 @@ static std::vector<unsigned char> getProgramBinaries(cl::Program program) {
 }
 
 // TODO: This build_batch method should be backend specific
-void kernels_cache::build_batch(const engine& build_engine, const batch_program& batch) {
+bool kernels_cache::build_batch(const engine& build_engine, const batch_program& batch) {
+    bool ret = true;
     OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "KernelsCache::build_batch");
 
     auto& cl_build_engine = dynamic_cast<const ocl::ocl_engine&>(build_engine);
@@ -236,7 +240,8 @@ void kernels_cache::build_batch(const engine& build_engine, const batch_program&
             cl::Program program(cl_build_engine.get_cl_context(), batch.source);
             {
                 OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "KernelsCache::BuildProgram::RunCompilation");
-                program.build(cl_build_engine.get_cl_device(), batch.options.c_str());
+                if (program.build(cl_build_engine.get_cl_device(), batch.options.c_str()) != CL_SUCCESS)
+                    ret = false;
             }
 
             if (dump_sources && dump_file.good()) {
@@ -259,9 +264,12 @@ void kernels_cache::build_batch(const engine& build_engine, const batch_program&
             }
         } else {
             cl::Program program(cl_build_engine.get_cl_context(), {cl_build_engine.get_cl_device()}, precompiled_kernels);
-            program.build(cl_build_engine.get_cl_device(), batch.options.c_str());
+            if (program.build(cl_build_engine.get_cl_device(), batch.options.c_str()) != CL_SUCCESS)
+                ret = false;
+
             program.createKernels(&kernels);
         }
+
         {
             std::lock_guard<std::mutex> lock(_mutex);
             for (auto& k : kernels) {
@@ -315,6 +323,8 @@ void kernels_cache::build_batch(const engine& build_engine, const batch_program&
                                  + std::to_string(batch.batch_id)
                                  + "): You may enable OCL source dump to see the error log.\n");
     }
+
+    return ret;
 }
 
 kernel::ptr kernels_cache::get_kernel(kernel_id id) const {
@@ -327,10 +337,11 @@ kernel::ptr kernels_cache::get_kernel(kernel_id id) const {
     return res->second;
 }
 
-void kernels_cache::build_all() {
+bool kernels_cache::build_all() {
+    bool ret = true;
     OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "KernelsCache::BuildAll");
     if (!_pending_compilation)
-        return;
+        return false;
 
     std::unique_ptr<ocl::ocl_engine> _build_engine = nullptr;
     if (_engine.type() == engine_types::ocl) {
@@ -348,9 +359,9 @@ void kernels_cache::build_all() {
     std::vector<InferenceEngine::Task> tasks;
     for (size_t idx = 0; idx < batches.size(); idx++) {
         auto& batch = batches[idx];
-        tasks.push_back([this, &_build_engine, &batch, &exception] {
+        tasks.push_back([this, &_build_engine, &batch, &exception, &ret] {
             try {
-                build_batch(*_build_engine, batch);
+                ret = build_batch(*_build_engine, batch);
             } catch(...) {
                 exception = std::current_exception();
             }
@@ -376,6 +387,8 @@ void kernels_cache::build_all() {
         malloc_trim(0);
 #endif
     }
+
+    return ret;
 }
 
 void kernels_cache::reset() {

@@ -993,6 +993,8 @@ kernel_selector::activation_function get_kernel_selector_activation_param(activa
 void set_params(const kernel_impl_params& param_info, kernel_selector::params& params) {
     const auto& program = param_info.prog;
     const auto& device_info = program.get_engine().get_device_info();
+    const auto dev = program.get_engine().get_device();
+    const auto conf = program.get_engine().configuration();
 
     params.uniqueID = std::to_string(param_info.unique_id);
     params.engineInfo.bSubGroupSupport = device_info.supports_subgroups;
@@ -1004,7 +1006,8 @@ void set_params(const kernel_impl_params& param_info, kernel_selector::params& p
     params.engineInfo.bIMMADSupport = device_info.supports_immad != 0;
     params.engineInfo.bImageSupport = device_info.supports_image != 0;
     params.engineInfo.bOptHintsSupport = false;
-    params.engineInfo.bLocalBlockIOSupport = device_info.supports_local_block_io;
+
+    params.engineInfo.bLocalBlockIOSupport = device_info.supports_local_block_io && program.is_local_block_io_supported();
     params.engineInfo.deviceType = get_device_type(device_info.dev_type);
     params.engineInfo.maxWorkGroupSize = device_info.max_work_group_size;
     params.engineInfo.maxLocalMemSize = device_info.max_local_mem_size;

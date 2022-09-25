@@ -134,6 +134,7 @@ program::program(engine& engine_ref,
       tuning_cache(nullptr) {
     init_primitives();
     set_options();
+
     _kernels_cache = std::unique_ptr<kernels_cache>(new kernels_cache(_engine, prog_id,
                                                                       kernel_selector::KernelBase::get_db().get_batch_header_str()));
     _impls_cache = std::unique_ptr<ImplementationsCache>(new ImplementationsCache(_impls_cache_capacity));
@@ -462,6 +463,63 @@ void program::set_options() {
 
     if (!options.get<build_option_type::force_implementations>()->forcing.empty()) {
         options.set_option(build_option::optimize_data(true));
+    }
+
+    query_local_block_io_supported();
+}
+
+bool program::is_local_block_io_supported() const {
+    return  static_cast<bool>(_engine.get_device()->get_subgroup_local_block_io_supported());
+}
+
+void program::query_local_block_io_supported() {
+    auto& device = _engine.get_device();
+    auto device_info = device->get_info();
+    if (device_info.gfx_ver.major < 12)
+        return;
+
+    if (device->get_subgroup_local_block_io_supported() != -1)
+        return;
+
+    std::shared_ptr<kernel_selector::KernelString> kernel_string = std::make_shared<kernel_selector::KernelString>();
+    std::string kernel_code =
+        "__attribute__((intel_reqd_sub_group_size(8)))"
+        "__attribute__((reqd_work_group_size(8, 1, 1)))"
+        "void kernel is_local_block_io_supported(global uchar* dst) {"
+        "    uint lid = get_sub_group_local_id();"
+        "    uchar val = (uchar)lid * 2;"
+        "    __local uchar tmp_slm[8];"
+        "    intel_sub_group_block_write_uc2(tmp_slm, (uchar2)(val));"
+        "    barrier(CLK_LOCAL_MEM_FENCE);"
+        "    uchar2 read = intel_sub_group_block_read_uc2(tmp_slm);"
+        "    dst[lid] = read.s0 + 1;"
+        "}";
+
+    kernel_string->str = kernel_code;
+    kernel_string->options = "-Dcl_intel_subgroup_local_block_io -DLOCAL_BLOCK_IO_SUPPORTED=1";
+    kernel_string->entry_point = "is_local_block_io_supported";
+    kernel_string->batch_compilation = true;
+
+    try {
+        auto _kernels_cache_device_query = std::unique_ptr<kernels_cache>(new kernels_cache(_engine, prog_id,
+                                                                    kernel_selector::KernelBase::get_db().get_batch_header_str()));
+        auto id = _kernels_cache_device_query->set_kernel_source(kernel_string, false);
+        // std::cout << ">>> Get ID from _kernels_cache->set_kernel_source : " << id << std::endl;
+        if (_kernels_cache_device_query->build_all() == false) {
+            device->set_subgroup_local_block_io_supported(false);
+            return;
+        }
+
+        auto kernel = _kernels_cache_device_query->get_kernel(id);
+        bool is_valid = device->try_kernel_execution(kernel);
+        // std::cout << ">>> validate_local_block_io_supported : " << (is_valid == true ? "true" : "false") << std::endl;
+        device->set_subgroup_local_block_io_supported(is_valid);
+
+        _kernels_cache_device_query->remove_kernel(id);
+        return;
+    } catch (...) {
+        device->set_subgroup_local_block_io_supported(false);
+        return;
     }
 }
 

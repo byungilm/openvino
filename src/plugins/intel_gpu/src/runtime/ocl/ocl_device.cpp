@@ -4,8 +4,12 @@
 
 #include "ocl_device.hpp"
 #include "ocl_common.hpp"
+#include "ocl_kernel.hpp"
 #include "intel_gpu/runtime/debug_configuration.hpp"
+#include "openvino/util/file_util.hpp"
+#include "openvino/runtime/intel_gpu/properties.hpp"
 
+#include <CL/opencl.hpp>
 #include <map>
 #include <string>
 #include <vector>
@@ -32,6 +36,7 @@
 #include <link.h>
 #include <dlfcn.h>
 #endif
+
 
 namespace cldnn {
 namespace ocl {
@@ -147,54 +152,6 @@ bool get_imad_support(const cl::Device& device) {
     return false;
 }
 
-bool is_local_block_io_supported(const cl::Device& device) {
-    try {
-        cl_int status = CL_SUCCESS;
-        cl::Context ctx(device);
-        std::string kernel_code =
-            "__attribute__((intel_reqd_sub_group_size(8)))"
-            "__attribute__((reqd_work_group_size(8, 1, 1)))"
-            "void kernel is_local_block_io_supported(global uchar* dst) {"
-            "    uint lid = get_sub_group_local_id();"
-            "    uchar val = (uchar)lid * 2;"
-            "    __local uchar tmp_slm[8];"
-            "    intel_sub_group_block_write_uc2(tmp_slm, (uchar2)(val));"
-            "    barrier(CLK_LOCAL_MEM_FENCE);"
-            "    uchar2 read = intel_sub_group_block_read_uc2(tmp_slm);"
-            "    dst[lid] = read.s0 + 1;"
-            "}";
-        cl::Program program(ctx, kernel_code);
-        if (program.build(device, "-Dcl_intel_subgroup_local_block_io") != CL_SUCCESS)
-            return false;
-        cl::Buffer buffer(ctx, CL_MEM_READ_WRITE, sizeof(uint8_t) * 8);
-        cl::Kernel kernel(program, "is_local_block_io_supported");
-        status = kernel.setArg(0, buffer);
-
-        if (status != CL_SUCCESS)
-            return false;
-
-        cl::Event ev;
-        cl::CommandQueue queue(ctx, device);
-        status = queue.enqueueNDRangeKernel(kernel, cl::NDRange(), cl::NDRange(8), cl::NDRange(8), nullptr, &ev);
-        if (status != CL_SUCCESS)
-            return false;
-        ev.wait();
-
-        uint8_t result[8];
-        uint8_t expected[8] = { 1, 3, 5, 7, 9, 11, 13, 15 };
-        status = queue.enqueueReadBuffer(buffer, CL_TRUE, 0, sizeof(uint8_t) * 8, &result);
-        if (status != CL_SUCCESS)
-            return false;
-        for (int i = 0; i < 8; ++i) {
-            if (result[i] != expected[i])
-                return false;
-        }
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
 device_info init_device_info(const cl::Device& device) {
     device_info info = {};
     info.vendor_id = static_cast<uint32_t>(device.getInfo<CL_DEVICE_VENDOR_ID>());
@@ -233,8 +190,7 @@ device_info init_device_info(const cl::Device& device) {
 
     info.supports_usm = extensions.find("cl_intel_unified_shared_memory") != std::string::npos;
 
-    info.supports_local_block_io = extensions.find("cl_intel_subgroup_local_block_io") != std::string::npos &&
-                                   is_local_block_io_supported(device);
+    info.supports_local_block_io = extensions.find("cl_intel_subgroup_local_block_io") != std::string::npos;
 
     info.supports_queue_families = extensions.find("cl_intel_command_queue_families") != std::string::npos;
 
@@ -313,7 +269,8 @@ ocl_device::ocl_device(const cl::Device dev, const cl::Context& ctx, const cl_pl
 , _device(dev)
 , _platform(platform)
 , _info(init_device_info(dev))
-, _mem_caps(init_memory_caps(dev, _info)) { }
+, _mem_caps(init_memory_caps(dev, _info))
+, _is_subgroup_local_block_io_supported(-1) { }
 
 bool ocl_device::is_same(const device::ptr other) {
     auto casted = downcast<ocl_device>(other.get());
@@ -321,6 +278,40 @@ bool ocl_device::is_same(const device::ptr other) {
         return false;
 
     return _context == casted->get_context() && _device == casted->get_device() && _platform == casted->get_platform();
+}
+
+bool ocl_device::try_kernel_execution(kernel::ptr krl) {
+    auto casted = downcast<ocl_kernel>(krl.get());
+    auto kernel = casted->get_handle();
+    try {
+        auto device = this->get_device();
+        cl_int status = CL_SUCCESS;
+        cl::Context ctx(device);
+
+        cl::Buffer buffer(ctx, CL_MEM_READ_WRITE, sizeof(uint8_t) * 8);
+        status = kernel.setArg(0, buffer);
+        if (status != CL_SUCCESS)
+            return false;
+
+        cl::Event ev;
+        cl::CommandQueue queue(ctx, device);
+        status = queue.enqueueNDRangeKernel(kernel, cl::NDRange(), cl::NDRange(8), cl::NDRange(8), nullptr, &ev);
+        if (status != CL_SUCCESS)
+            return false;
+
+        ev.wait();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+int8_t ocl_device::get_subgroup_local_block_io_supported() {
+    return _is_subgroup_local_block_io_supported;
+}
+
+void ocl_device::set_subgroup_local_block_io_supported(bool support) {
+    _is_subgroup_local_block_io_supported = static_cast<int8_t>(support);
 }
 
 }  // namespace ocl
