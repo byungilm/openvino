@@ -475,6 +475,7 @@ bool program::is_local_block_io_supported() const {
 void program::query_local_block_io_supported() {
     auto& device = _engine.get_device();
     auto device_info = device->get_info();
+    std::cout << ">>> query_local_block_io_supported !!!!!! supports? : " << static_cast<int32_t>(device->get_subgroup_local_block_io_supported()) << std::endl;
     if (device_info.gfx_ver.major < 12)
         return;
 
@@ -504,7 +505,7 @@ void program::query_local_block_io_supported() {
         auto _kernels_cache_device_query = std::unique_ptr<kernels_cache>(new kernels_cache(_engine, prog_id,
                                                                     kernel_selector::KernelBase::get_db().get_batch_header_str()));
         auto id = _kernels_cache_device_query->set_kernel_source(kernel_string, false);
-        // std::cout << ">>> Get ID from _kernels_cache->set_kernel_source : " << id << std::endl;
+        std::cout << ">>> Get ID from _kernels_cache->set_kernel_source : " << id << std::endl;
         if (_kernels_cache_device_query->build_all() == false) {
             device->set_subgroup_local_block_io_supported(false);
             return;
@@ -512,7 +513,7 @@ void program::query_local_block_io_supported() {
 
         auto kernel = _kernels_cache_device_query->get_kernel(id);
         bool is_valid = device->try_kernel_execution(kernel);
-        // std::cout << ">>> validate_local_block_io_supported : " << (is_valid == true ? "true" : "false") << std::endl;
+        std::cout << ">>> validate_local_block_io_supported : " << (is_valid == true ? "true" : "false") << std::endl;
         device->set_subgroup_local_block_io_supported(is_valid);
 
         _kernels_cache_device_query->remove_kernel(id);
