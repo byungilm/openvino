@@ -5,17 +5,20 @@
 #include "intel_gpu/plugin/program.hpp"
 #include "intel_gpu/plugin/common_utils.hpp"
 
-#include "ngraph/op/constant.hpp"
-#include "ngraph/op/convolution.hpp"
-#include "ngraph/op/binary_convolution.hpp"
-#include "ngraph/op/deformable_convolution.hpp"
-#include "ngraph/op/group_conv.hpp"
-#include "ngraph/op/concat.hpp"
-#include "ngraph/op/squared_difference.hpp"
-#include "ngraph/op/gather.hpp"
-#include "ngraph/op/split.hpp"
-#include "ngraph/op/variadic_split.hpp"
-#include "ngraph/op/util/op_types.hpp"
+#include "openvino/op/constant.hpp"
+#include "openvino/op/convolution.hpp"
+#include "openvino/op/convert.hpp"
+#include "openvino/op/binary_convolution.hpp"
+#include "openvino/op/deformable_convolution.hpp"
+#include "openvino/op/group_conv.hpp"
+#include "openvino/op/concat.hpp"
+#include "openvino/op/squared_difference.hpp"
+#include "openvino/op/gather.hpp"
+#include "openvino/op/split.hpp"
+#include "openvino/op/prelu.hpp"
+#include "openvino/op/roi_align.hpp"
+#include "openvino/op/variadic_split.hpp"
+#include "openvino/op/util/op_types.hpp"
 
 #include "intel_gpu/primitives/data.hpp"
 #include "intel_gpu/runtime/debug_configuration.hpp"
@@ -178,6 +181,8 @@ static void CreateConstantOp(Program& p, const std::shared_ptr<ngraph::op::v0::C
             if (constDims.size() == 4 && input_shape.size() == 3) { // In case of weight dim 4 and input dim 3,
                 constDims.push_back(1);                             // The weight cldnn tensor adds 1d to the end as the input cldnn tensor does
             }
+        } else if (ov::is_type<ov::op::v3::ROIAlign>(outOp) || ov::is_type<ov::op::v9::ROIAlign>(outOp)) {
+            consts[op].needsBatchInterpretation = constDims.size() == 1;
         }
     }
 
