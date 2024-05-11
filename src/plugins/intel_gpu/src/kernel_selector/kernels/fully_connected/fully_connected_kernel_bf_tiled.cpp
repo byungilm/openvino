@@ -256,7 +256,10 @@ FullyConnected_bf_tiled::GetAutoTuneParams(const fully_connected_params& params,
         } else {
             // Try to use SLM kernels if possible
             if (preferred_kernel_type != KernelType::DEFAULT) {
-                if (params.is_shape_agnostic) {
+                if (params.outputs[0].Y().v == 11008 && params.activations.empty()) {
+                    selector.Case(tune_params(4, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                            .Case(tune_params(4, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+                } else if (params.is_shape_agnostic) {
                     selector.Case(tune_params(16, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
                             .Case(tune_params(16, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
                 }
@@ -446,14 +449,41 @@ JitConstants FullyConnected_bf_tiled::GetJitConstants(const fully_connected_para
         jit.AddConstant(MakeJitConstant("USE_SLM", 0));
     }
 
+    // IMPL
+    char *dyn_quan_conf = getenv("DYN_QUAN_CONF");
+    bool use_dyn_quan = true;
+    int conf = -1;
+    if (dyn_quan_conf != NULL) {
+        use_dyn_quan = false;
+        conf = atoi(dyn_quan_conf);
+        static bool __first = true;
+        if (__first) {
+            __first = false;
+            std::cout << "DYN_QUAN_CONF " << conf << std::endl;
+        }
+
+        // printf(" >> TILE_B(%d) conf(%d) Y(%d)\n", dispatchData.tile_m , (int)conf, (int)params.outputs[0].Y().v);
+        if ((conf & 1) && dispatchData.tile_m == 8 && params.outputs[0].Y().v == 12288)
+            use_dyn_quan = true;
+        if ((conf & 2) && dispatchData.tile_m == 4 && params.outputs[0].Y().v == 12288)
+            use_dyn_quan = true;
+        if ((conf & 4) && dispatchData.tile_m == 8 && params.outputs[0].Y().v == 11008)
+            use_dyn_quan = true;
+        if ((conf & 8) && dispatchData.tile_m == 4 && params.outputs[0].Y().v == 11008)
+            use_dyn_quan = true;
+    }
+
     // Validated perf gain, Dynamic quantize force enable SCALE_POST_OP for char type multiplication
     const size_t scale_group_size = params.weights.IFM().v / params.decompression_scale.Feature().v;
     if ((scale_group_size % simd == 0) &&
         params.inputs[0].GetDType() == Datatype::F16 && params.outputs[0].GetDType() == Datatype::F16 &&
         (params.weights.GetDType() == WeightsType::INT4 || params.weights.GetDType() == WeightsType::UINT4) &&
-        params.inputs[0].Y().v > 16 && dispatchData.tile_n == 2 &&
+        params.inputs[0].Y().v > 16 && dispatchData.tile_m > 1 && dispatchData.tile_n == 2 &&
+        use_dyn_quan && // 11008
         params.decompression_zero_point.Feature().v == 1) {
         jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 1));
+        printf(" >> TILE_B(%d) conf(%d) Y(%d) ACTIVATION(%s)\n",
+                dispatchData.tile_m , (int)conf, (int)params.outputs[0].Y().v, ((params.activations.empty() == true) ? "NO" : "YES"));
     } else {
         jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 0));
     }

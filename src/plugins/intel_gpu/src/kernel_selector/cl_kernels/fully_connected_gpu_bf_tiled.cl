@@ -778,6 +778,7 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
         // Dyn Quan
         MAKE_VECTOR_TYPE(INPUT0_TYPE, INPUT_LOAD_SIZE)  tiled_input_0[HALF_TILE_B] = { };   // Load 4 linear inputs for packing
         PACKED_DQ_TYPE                                  packed_in_0[HALF_TILE_B] = { };     // Packing char4 inputs to 1 integer
+        // INPUT0_TYPE                                     max[HALF_TILE_B] = { };
     #else
         INPUT_VEC_TYPE       in_0[TILE_B] = { };
     #endif
@@ -863,7 +864,7 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
         #endif
 
         #if USE_SLM && DYNAMIC_QUANTIZE
-            MAKE_VECTOR_TYPE(int, TILE_OFM) acc_tmp[TILE_B] = { };
+            MAKE_VECTOR_TYPE(int, TILE_B) acc_tmp[TILE_OFM] = { };
         #else
             ACCUMULATOR_VEC_TYPE acc_tmp[TILE_B] = { };
         #endif
@@ -880,24 +881,39 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
 
             #if DYNAMIC_QUANTIZE
                 // Quantizing for loaded input using max value
-                INPUT0_TYPE                                max[2][HALF_TILE_B] = { 0 };
-                MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) de_quantize_scale[2] = { };
-                MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) dq_max_input[2] = { };
-                MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) quan = 128;
-                unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
-                    max[batch_sglid][bi] = fmax(fmax(fabs(tiled_input_0[bi][0]), fabs(tiled_input_0[bi][1])), fmax(fabs(tiled_input_0[bi][2]), fabs(tiled_input_0[bi][3])));
-                }
-                unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
-                    dq_max_input[0][bi] = sub_group_reduce_max(max[0][bi]);
-                    dq_max_input[1][bi] = sub_group_reduce_max(max[1][bi]);
-                }
-                de_quantize_scale[0] = dq_max_input[0] / quan;
-                de_quantize_scale[1] = dq_max_input[1] / quan;
+                #if 1
+                    INPUT0_TYPE                                max[2][HALF_TILE_B] = { 0 };
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) de_quantize_scale[2] = { 0 };
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) dq_max_input[2] = { 0 };
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) quan = 128;
+                    unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
+                        max[batch_sglid][bi] = fmax(fmax(fabs(tiled_input_0[bi][0]), fabs(tiled_input_0[bi][1])), fmax(fabs(tiled_input_0[bi][2]), fabs(tiled_input_0[bi][3])));
+                    }
+                    unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
+                        dq_max_input[0][bi] = sub_group_reduce_max(max[0][bi]);
+                        dq_max_input[1][bi] = sub_group_reduce_max(max[1][bi]);
+                    }
+                    de_quantize_scale[0] = dq_max_input[0] / quan;
+                    de_quantize_scale[1] = dq_max_input[1] / quan;
 
-                // Packing 4 of converted inputs to integer type
-                unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
-                    packed_in_0[bi] = as_int(CAT(convert_, MAKE_VECTOR_TYPE(DQ_TYPE, INPUT_LOAD_SIZE))(tiled_input_0[bi] / de_quantize_scale[batch_sglid][bi]));
-                }
+                    // Packing 4 of converted inputs to integer type
+                    unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
+                        packed_in_0[bi] = as_int(CAT(convert_, MAKE_VECTOR_TYPE(DQ_TYPE, INPUT_LOAD_SIZE))(tiled_input_0[bi] / de_quantize_scale[batch_sglid][bi]));
+                    }
+                #else
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) de_quantize_scale = 1;
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) dq_max_input;
+                    MAKE_VECTOR_TYPE(INPUT0_TYPE, HALF_TILE_B) quan = 128;
+                    unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
+                        max[bi] = fmax(fmax(fabs(tiled_input_0[bi][0]), fabs(tiled_input_0[bi][1])), fmax(fabs(tiled_input_0[bi][2]), fabs(tiled_input_0[bi][3])));
+                        dq_max_input[bi] = sub_group_reduce_max(max[bi]);
+                    }
+                    de_quantize_scale = dq_max_input / quan;
+                    // Packing 4 of converted inputs to integer type
+                    unroll_for (uint bi = 0; bi < HALF_TILE_B; ++bi) {
+                        packed_in_0[bi] = as_int(CAT(convert_, MAKE_VECTOR_TYPE(DQ_TYPE, INPUT_LOAD_SIZE))(tiled_input_0[bi] / de_quantize_scale[bi]));
+                    }
+                #endif
             #endif
 
             // __local SLM_FILTER_VEC* char_slm_weight = (__local SLM_FILTER_VEC*)wei_local_mem;
@@ -1014,8 +1030,8 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
                     char4 first_weight = weight.s0123;
                     char4 second_weight = weight.s4567;
                     unroll_for (uint bi = 0; bi < TILE_B; ++bi) {
-                        acc_tmp[bi][0] = imad_SW(acc_tmp[bi][0], input_val, first_weight);
-                        acc_tmp[bi][1] = imad_SW(acc_tmp[bi][1], input_val, second_weight);
+                        acc_tmp[0][bi] = imad_SW(acc_tmp[0][bi], input_val, first_weight);
+                        acc_tmp[1][bi] = imad_SW(acc_tmp[1][bi], input_val, second_weight);
                         input_val = as_char4(_sub_group_shuffle(packed_in_0[(bi+1) / 2], ((bi+1) % 2) * 8 + ki));
                     }
                 #else
@@ -1059,8 +1075,9 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
                         #endif
 
                         #if USE_SLM && DYNAMIC_QUANTIZE
-                            ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += convert_half(((int *)(&acc_tmp[bi]))[fi]) * ds * de_quantize_scale[bi % 2][bi / 2];
-                            acc_tmp[bi][fi] = 0;
+                            // ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += convert_half(((int *)(&acc_tmp[fi]))[bi]) * ds * de_quantize_scale[bi / 2];
+                            ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += convert_half(((int *)(&acc_tmp[fi]))[bi]) * ds * de_quantize_scale[bi % 2][bi / 2];
+                            acc_tmp[fi][bi] = 0;
                         #else
                             ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += ((ACCUMULATOR_TYPE*)(&acc_tmp[bi]))[fi] * ds;
                             acc_tmp[bi][fi] = 0;
@@ -1084,7 +1101,8 @@ inline void FUNC(fc_bf_tiled_kernel_dyn_quan)(
                     #endif
 
                     #if USE_SLM && DYNAMIC_QUANTIZE
-                        ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += convert_half(((int *)(&acc_tmp[bi]))[fi]) * ds * de_quantize_scale[bi % 2][bi / 2];
+                        // ((ACCUMULATOR_TYPE*)(&acc[fi]))[bi] += convert_half(((int *)(&acc_tmp[fi]))[bi]) * ds * de_quantize_scale[bi / 2];
+                        ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += convert_half(((int *)(&acc_tmp[fi]))[bi]) * ds * de_quantize_scale[bi % 2][bi / 2];
                     #else
                         ((ACCUMULATOR_TYPE*)(&acc[bi]))[fi] += ((ACCUMULATOR_TYPE*)(&acc_tmp[bi]))[fi] * ds;
                     #endif
