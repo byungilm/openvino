@@ -256,10 +256,7 @@ FullyConnected_bf_tiled::GetAutoTuneParams(const fully_connected_params& params,
         } else {
             // Try to use SLM kernels if possible
             if (preferred_kernel_type != KernelType::DEFAULT) {
-                if (params.outputs[0].Y().v == 11008 && params.activations.empty()) {
-                    selector.Case(tune_params(4, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
-                            .Case(tune_params(4, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
-                } else if (params.is_shape_agnostic) {
+                if (params.is_shape_agnostic) {
                     selector.Case(tune_params(16, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
                             .Case(tune_params(16, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
                 }
@@ -482,8 +479,6 @@ JitConstants FullyConnected_bf_tiled::GetJitConstants(const fully_connected_para
         use_dyn_quan && // 11008
         params.decompression_zero_point.Feature().v == 1) {
         jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 1));
-        printf(" >> TILE_B(%d) conf(%d) Y(%d) ACTIVATION(%s)\n",
-                dispatchData.tile_m , (int)conf, (int)params.outputs[0].Y().v, ((params.activations.empty() == true) ? "NO" : "YES"));
     } else {
         jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 0));
     }

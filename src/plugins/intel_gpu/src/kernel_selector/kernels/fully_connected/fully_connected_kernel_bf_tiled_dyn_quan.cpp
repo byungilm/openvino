@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2023 Intel Corporation
+// Copyright (C) 2018-2024 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -184,12 +184,13 @@ bool TuneParamsSelector::VerifyTuneParams(const fully_connected_params& params, 
         return false;
 
     if (tparams.kernel_type == FullyConnected_bf_tiled_dyn_quan::KernelType::SLM) {
+        bool is_i4_u4 = (params.weights.GetDType() == WeightsType::INT4 || params.weights.GetDType() == WeightsType::UINT4);
         const auto required_batch_alignment = 64;
         if (!params.is_shape_agnostic && (!IsAligned(output_b, required_batch_alignment) || output_b < 256))
             return false;
 
         const auto required_tile_b = 8;
-        if (tparams.tile_b != required_tile_b)
+        if ((tparams.tile_b != required_tile_b) && !is_i4_u4)
             return false;
 
         const auto required_tile_ofm = 2;
@@ -248,17 +249,47 @@ FullyConnected_bf_tiled_dyn_quan::GetAutoTuneParams(const fully_connected_params
         max_tile_ofm *= 2;
 
     if (params.weights.GetDType() == WeightsType::UINT4 || params.weights.GetDType() == WeightsType::INT4) {
+        /*
         if (!params.is_shape_agnostic && batch == 1) {
             // Tuning for Meteor Lake
-            return selector.Default(tune_params(1, 2, 4, 2, 1, 1, EXE_MODE_DEFAULT));
+            size_t ideal_num_threads = params.engineInfo.maxThreadsPerDevice * simd;
+            if (output_f / 2 < ideal_num_threads * 0.8 && params.weights.GetLayout() == WeightsLayout::os_is_yx_osv32_isv2) {
+                GPU_DEBUG_TRACE_DETAIL << "FC bf tiled: Set ofm_tile 1. (output_f : " << output_f
+                                       << ", ideal threads : " << ideal_num_threads << ")" << std::endl;
+                return selector.Default(tune_params(1, 1, 4, 2, 1, 1, EXE_MODE_DEFAULT));
+            } else {
+                return selector.Default(tune_params(1, 2, 4, 2, 1, 1, EXE_MODE_DEFAULT));
+            }
         } else {
             // Try to use SLM kernels if possible
             if (preferred_kernel_type != KernelType::DEFAULT) {
+                if (params.outputs[0].Y().v == 11008 && params.activations.empty()) {
+                    selector.Case(tune_params(4, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                            .Case(tune_params(4, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+                } else if (params.is_shape_agnostic) {
+                    selector.Case(tune_params(16, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                            .Case(tune_params(16, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+                }
                 selector.Case(tune_params(8, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
                         .Case(tune_params(8, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
             }
             return selector.Default(tune_params(8, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT));
         }
+        */
+        if (preferred_kernel_type != KernelType::DEFAULT) {
+            /*
+            if (params.outputs[0].Y().v == 11008 && params.activations.empty()) {
+                selector.Case(tune_params(4, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                        .Case(tune_params(4, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+            } else if (params.is_shape_agnostic) {
+                selector.Case(tune_params(16, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                        .Case(tune_params(16, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+            }
+            */
+            selector.Case(tune_params(8, 2, 2, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM))
+                    .Case(tune_params(8, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT, KernelType::SLM));
+        }
+        return selector.Default(tune_params(8, 2, 1, 4, 1, 1, EXE_MODE_DEFAULT));
     } else if (params.compressed && params.engineInfo.supports_immad) {
         return selector.Default(tune_params(1, 1, 1, 4, 1, 1, EXE_MODE_DEFAULT));
     } else if (params.is_shape_agnostic) {
@@ -330,8 +361,8 @@ FullyConnected_bf_tiled_dyn_quan::SetDefault(const fully_connected_params& param
     // on `kernel_number` (this implementation allows to have 2 shape-agnostic kernels at the same time
     // for small batches and large batches and change them during inference on the fly)
     auto kernel_type = KernelType::ANY;
-    // if (params.is_shape_agnostic)
-    //     kernel_type = kernel_number == 0 ? KernelType::DEFAULT : KernelType::SLM;
+    if (params.is_shape_agnostic)
+        kernel_type = kernel_number == 0 ? KernelType::DEFAULT : KernelType::SLM;
 
     auto tparams = GetAutoTuneParams(params, kernel_type, autoTuneIndex);
 
@@ -357,14 +388,6 @@ FullyConnected_bf_tiled_dyn_quan::SetDefault(const fully_connected_params& param
     dispatchData.lws[1] = 1;
     dispatchData.lws[2] = can_use_slm ? lws_batches : 1;
 
-    // std::cout << "========================================================================================" << std::endl;
-    // std::cout << ">> FullyConnected_bf_tiled_dyn_quan GWS [0,1,2] : " << dispatchData.gws[0] << ", " << dispatchData.gws[1] << ", "
-    //             << dispatchData.gws[2] << std::endl;
-    // std::cout << ">> FullyConnected_bf_tiled_dyn_quan LWS [0,1,2] : " << dispatchData.lws[0] << ", " << dispatchData.lws[1] << ", "
-    //             << dispatchData.lws[2] << std::endl;
-    // printf("  --  input  : batch(%d), feature(%d) Y(%d)\n", (int)params.inputs[0].Batch().v, (int)params.inputs[0].Feature().v, (int)params.inputs[0].Y().v);
-    // printf("  --  output : batch(%d), feature(%d) Y(%d)\n", (int)params.outputs[0].Batch().v, (int)params.outputs[0].Feature().v, (int)params.outputs[0].Y().v);
-
     dispatchData.tile_m = tparams.tile_b;
     dispatchData.tile_n = tparams.tile_ofm;
     dispatchData.tile_mk = tparams.tile_ifm;
@@ -383,22 +406,16 @@ KernelsPriority FullyConnected_bf_tiled_dyn_quan::GetKernelsPriority(const Param
     if (fc_params.outputs[0].GetLayout() == DataLayout::bfyx)
         output_b *= fc_params.outputs[0].Feature().v;
 
-    // const auto default_alignment = 16;
-    // const auto skip_kernel_idx = output_b + default_alignment > 256 ? 0 : 1;
-    // const auto execute_kernel_idx = 1 - skip_kernel_idx;
-
-    auto kernel_type = KernelType::ANY;
-    // if (params.is_shape_agnostic)
-    //     kernel_type = execute_kernel_idx == 0 ? KernelType::DEFAULT : KernelType::SLM;
-
     float estimated_time = FORCE_PRIORITY_9;
+    auto kernel_type = KernelType::ANY;
     auto tparams = GetAutoTuneParams(fc_params, kernel_type, -1);
-    // if (tparams.kernel_type == KernelType::SLM &&
-    //     fc_params.inputs[0].GetDType() == Datatype::F16 && fc_params.outputs[0].GetDType() == Datatype::F16 &&
-    //     fc_params.inputs[0].Y().v > 16 &&
-    //     fc_params.decompression_zero_point.Feature().v == 1) {
-    //     estimated_time = FORCE_PRIORITY_1;
-    // }
+    if (tparams.kernel_type == KernelType::SLM &&
+        fc_params.inputs[0].GetDType() == Datatype::F16 && fc_params.outputs[0].GetDType() == Datatype::F16 &&
+        fc_params.inputs[0].Y().v > 16 &&
+        // fc_params.outputs[0].Y().v == 11008 && fc_params.activations.empty() &&  // TEMP
+        fc_params.decompression_zero_point.Feature().v == 1) {
+        estimated_time = FORCE_PRIORITY_1;
+    }
 
     return estimated_time;
 }
@@ -413,12 +430,18 @@ JitConstants FullyConnected_bf_tiled_dyn_quan::GetJitConstants(const fully_conne
         tile_k_ofm_packed /= 2;
 
         jit.Merge(make_int4_packed_type_jit_constant("INT4_PACKED_TYPE", weights_dt, tile_k_ofm));
-        // Dynamic quantize kernel requires DECOMPRESSION_SCALE_POST_OP for char type calculation
-        jit.AddConstant(MakeJitConstant("DECOMPRESSION_SCALE_POST_OP", 1));
+        const size_t scale_group_size = params.weights.IFM().v / params.decompression_scale.Feature().v;
+        // Do not use SCALE_POST_OP for SLM kernel, since it demonstrates worse performance
+        if (scale_group_size % simd == 0 && !dispatchData.use_slm)
+            jit.AddConstant(MakeJitConstant("DECOMPRESSION_SCALE_POST_OP", 1));
     }
+    if (params.weights.GetLayout() == WeightsLayout::os_is_yx_osv32_isv2)
+        jit.AddConstant(MakeJitConstant("W_IDX", "fi * TILE_K + kii"));
+    else
+        jit.AddConstant(MakeJitConstant("W_IDX", "kii * TILE_OFM + fi"));
+
 
     if (dispatchData.use_slm) {
-        // std::cout << ">> FullyConnected_bf_tiled_dyn_quan : USE_SLM ON" << std::endl;
         OPENVINO_ASSERT(dispatchData.tile_n == 2, "[GPU] Unsupported TILE_OFM size for SLM kernel configuration");
         OPENVINO_ASSERT(weights_dt == WeightsType::INT4 || weights_dt == WeightsType::UINT4, "[GPU] Unsupported FC weights type for SLM kernel configuration");
 
@@ -449,10 +472,55 @@ JitConstants FullyConnected_bf_tiled_dyn_quan::GetJitConstants(const fully_conne
         jit.AddConstant(MakeJitConstant("FILTER_LOAD_BLOCK_SIZE", block_read_size));
         jit.AddConstant(MakeJitConstant("FILTER_ELEMENTS_PER_LOAD", weights_elements_per_load));
         jit.Merge(make_int4_packed_type_jit_constant("INT4_PACKED_TYPE_PRELOAD", params.weights.GetDType(), weights_elements_per_load));
+    } else {
+        jit.AddConstant(MakeJitConstant("USE_SLM", 0));
+    }
+
+    // IMPL
+    int conf = -1;
+    /*
+    char *dyn_quan_conf = getenv("DYN_QUAN_CONF");
+    bool use_dyn_quan = true;
+    if (dyn_quan_conf != NULL) {
+        use_dyn_quan = false;
+        conf = atoi(dyn_quan_conf);
+        static bool __first = true;
+        if (__first) {
+            __first = false;
+            std::cout << "DYN_QUAN_CONF " << conf << std::endl;
+        }
+
+        // printf(" >> TILE_B(%d) conf(%d) Y(%d)\n", dispatchData.tile_m , (int)conf, (int)params.outputs[0].Y().v);
+        if ((conf & 1) && dispatchData.tile_m == 8 && params.outputs[0].Y().v == 12288)
+            use_dyn_quan = true;
+        if ((conf & 2) && dispatchData.tile_m == 4 && params.outputs[0].Y().v == 12288)
+            use_dyn_quan = true;
+        if ((conf & 4) && dispatchData.tile_m == 8 && params.outputs[0].Y().v == 11008)
+            use_dyn_quan = true;
+        if ((conf & 8) && dispatchData.tile_m == 4 && params.outputs[0].Y().v == 11008)
+            use_dyn_quan = true;
+    }
+    */
+
+    // Validated perf gain, Dynamic quantize force enable SCALE_POST_OP for char type multiplication
+    jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 1));
+    const size_t scale_group_size = params.weights.IFM().v / params.decompression_scale.Feature().v;
+    if ((scale_group_size % simd == 0) &&
+        params.inputs[0].GetDType() == Datatype::F16 && params.outputs[0].GetDType() == Datatype::F16 &&
+        (params.weights.GetDType() == WeightsType::INT4 || params.weights.GetDType() == WeightsType::UINT4) &&
+        params.inputs[0].Y().v > 16 && dispatchData.tile_m > 1 && dispatchData.tile_n == 2 &&
+        //  use_dyn_quan && // 11008
+        params.decompression_zero_point.Feature().v == 1) {
+        jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 1));
+        // printf(" >> TILE_B(%d) conf(%d) Y(%d) ACTIVATION(%s)\n",
+        //        dispatchData.tile_m , (int)conf, (int)params.outputs[0].Y().v, ((params.activations.empty() == true) ? "NO" : "YES"));
+    } else {
+        jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 0));
     }
 
     jit.AddConstant(MakeJitConstant("SIMD", simd));
     jit.AddConstant(MakeJitConstant("TILE_B", dispatchData.tile_m));
+    jit.AddConstant(MakeJitConstant("HALF_TILE_B", dispatchData.tile_m/2));
     jit.AddConstant(MakeJitConstant("TILE_OFM", dispatchData.tile_n));
     jit.AddConstant(MakeJitConstant("TILE_IFM", dispatchData.tile_mk));
     jit.AddConstant(MakeJitConstant("TILE_K", dispatchData.tile_nk));
@@ -517,14 +585,6 @@ JitConstants FullyConnected_bf_tiled_dyn_quan::GetJitConstants(const fully_conne
         jit.Merge(MakeFusedOpsJitConstants(params, { conf_scalar, conf_vec }));
     }
 
-    // DYNAMIC_QUANTIZE
-    if (dispatchData.use_slm &&
-        params.inputs[0].GetDType() == Datatype::F16 && params.outputs[0].GetDType() == Datatype::F16 &&
-        params.inputs[0].Y().v > 16 &&
-        params.decompression_zero_point.Feature().v == 1) {
-        jit.AddConstant(MakeJitConstant("DYNAMIC_QUANTIZE", 1));
-    }
-
     return jit;
 }
 
@@ -573,10 +633,16 @@ KernelsData FullyConnected_bf_tiled_dyn_quan::GetTunedKernelsDataByIndex(const P
     tune_params tparams = GetAutoTuneParams(fc_params, KernelType::ANY, autoTuneIndex);
 
     WeightsLayout weights_layout = WeightsLayout::os_iyx_osv16;
-    if (tparams.tile_ofm * simd == 32)
+    if (fc_params.compressed && fc_params.inputs[0].GetDType() == Datatype::F16
+        // ioyx => os_is_yx_osv32_isv2 is not supported yet
+        && (fc_params.weights.GetLayout() == WeightsLayout::oiyx || fc_params.weights.GetLayout() == WeightsLayout::os_is_yx_osv32_isv2)
+        && (fc_params.weights.GetDType() == WeightsType::INT4 || fc_params.weights.GetDType() == WeightsType::UINT4)) {
+        weights_layout = WeightsLayout::os_is_yx_osv32_isv2;
+    } else if (tparams.tile_ofm * simd == 32) {
         weights_layout = WeightsLayout::os_iyx_osv32;
-    else if (tparams.tile_ofm * simd == 64)
+    } else if (tparams.tile_ofm * simd == 64) {
         weights_layout = WeightsLayout::os_iyx_osv64;
+    }
 
     auto kernels_data = GetCommonKernelsData(params,
                                              fc_params.inputs[0].GetLayout(),
@@ -636,5 +702,4 @@ KernelsData FullyConnected_bf_tiled_dyn_quan::GetKernelsData(const Params& param
 
     return res;
 }
-
 }  // namespace kernel_selector

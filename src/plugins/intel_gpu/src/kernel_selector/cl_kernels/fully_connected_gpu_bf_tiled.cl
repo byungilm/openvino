@@ -55,6 +55,7 @@
 #define UNPACK_INT4 UNPACK_INT4x2
 #define UNPACK_MIXED_INT4 UNPACK_MIXED_INT4x2
 #endif
+
 // Macros for vectorized types.
 #define INPUT_VEC_TYPE             MAKE_VECTOR_TYPE(INPUT0_TYPE, TILE_IFM)
 #define ACCUMULATOR_VEC_TYPE       MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, TILE_OFM)
@@ -1426,13 +1427,7 @@ KERNEL(fc)(
         #endif
         );
     } else {
-        if ((INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM > 256) && USE_SLM && DYNAMIC_QUANTIZE/* && !FILTER_LAYOUT_OS_IS_YX_OSV32_ISV2*/) {
-            // if (get_sub_group_local_id() == 0 && get_group_id(0) == 0 && get_group_id(2) == 0 &&
-            //     get_local_id(0) == 0 && get_local_id(2) == 0) {
-            //         printf(">>>> DYNAMIC : ELEMENTS_COUNT(%d) batch(%d) TILE_B(%d) OSV32_ISV2(%d) TILE_OFM(%d) => group0(%d) local0(%d) / group2(%d) local2(%d)\n",
-            //                 (int)MAIN_LOOP_ELEMENTS_COUNT, (int)INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM, (int)TILE_B, (int)FILTER_LAYOUT_OS_IS_YX_OSV32_ISV2, (int)TILE_OFM,
-            //                 (int)get_global_size(0), (int)get_local_size(0), (int)get_global_size(2), (int)get_local_size(2));
-            // }
+        if ((0 && INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM > 256) && USE_SLM && DYNAMIC_QUANTIZE/* && !FILTER_LAYOUT_OS_IS_YX_OSV32_ISV2*/) {
             FUNC_CALL(fc_bf_tiled_kernel_dyn_quan)(
                 OPTIONAL_SHAPE_INFO_TENSOR
                 input,
@@ -1479,13 +1474,7 @@ KERNEL(fc)(
         }
     }
 #else
-    if ((INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM > 256) && USE_SLM && DYNAMIC_QUANTIZE/* && !FILTER_LAYOUT_OS_IS_YX_OSV32_ISV2*/) {
-        // if (get_sub_group_local_id() == 0 && get_group_id(0) == 0 && get_group_id(2) == 0 &&
-        //     get_local_id(0) == 0 && get_local_id(2) == 0) {
-        //         printf(">>>> STATIC : MAIN_LOOP_ELEMENTS_COUNT(%d) batch(%d) => group0(%d) local0(%d) / group2(%d) local2(%d)\n",
-        //                 (int)MAIN_LOOP_ELEMENTS_COUNT, (int)INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM,
-        //                 (int)get_global_size(0), (int)get_local_size(0), (int)get_global_size(2), (int)get_local_size(2));
-        // }
+    if ((0 && INPUT0_FEATURE_NUM*INPUT0_BATCH_NUM > 256) && USE_SLM && DYNAMIC_QUANTIZE/* && !FILTER_LAYOUT_OS_IS_YX_OSV32_ISV2*/) {
         FUNC_CALL(fc_bf_tiled_kernel_dyn_quan)(
             OPTIONAL_SHAPE_INFO_TENSOR
             input,
