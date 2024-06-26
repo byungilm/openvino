@@ -90,10 +90,10 @@ public:
         ASSERT_EQ(outputs.begin()->first, "dyn_quan_prim");
 
         auto output_mem = outputs.begin()->second.get_memory();
-        cldnn::mem_lock<ov::float16> output_ptr (output_mem, get_test_stream());
+        cldnn::mem_lock<uint8_t> output_ptr (output_mem, get_test_stream());
 
         auto ref_output_mem = get_ref_results();
-        cldnn::mem_lock<ov::float16> output_ptr_ref (ref_output_mem, get_test_stream());
+        cldnn::mem_lock<uint8_t> output_ptr_ref (ref_output_mem, get_test_stream());
 
         size_t count = 0;
         float max_diff = 0.f;
@@ -104,9 +104,10 @@ public:
                 max_diff = abs_diff;
             avg = abs_diff;
             count++;
-            // OPENVINO_ASSERT(abs_diff < 256);
+            if (abs_diff > 1)
+                OPENVINO_THROW("Error is too large");
         }
-        /*GPU_DEBUG_LOG*/std::cout << "---> count: " << count << ", max_diff:" << max_diff << ", avg_diff: " << (avg/count) << std::endl;
+        GPU_DEBUG_LOG << "---> count: " << count << ", max_diff:" << max_diff << ", avg_diff: " << (avg/count) << std::endl;
     }
 };
 
@@ -114,3 +115,10 @@ TEST_F(dynamic_quantization_gpu_tests, simple_quantizing_large_size) {
     this->test_dynamic_quantization(false, false, 2048, 4096);
 }
 
+TEST_F(dynamic_quantization_gpu_tests, simple_quantizing_small_size) {
+    this->test_dynamic_quantization(false, false, 64, 4096);
+}
+
+TEST_F(dynamic_quantization_gpu_tests, simple_quantizing_single_batch) {
+    this->test_dynamic_quantization(false, false, 1, 4096);
+}

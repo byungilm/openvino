@@ -118,8 +118,12 @@ bool DynamicQuantizeKernelOpt::Validate(const Params& params) const {
     const auto& dq_params = static_cast<const dynamic_quantize_params&>(params);
 
     // Todo : Add proper exception here
-    if ((dq_params.outputs[0].X().v * dq_params.outputs[0].Y().v % 32) != 0)
+    if ((dq_params.outputs[0].X().v * dq_params.outputs[0].Y().v % 128) != 0)
         return false;
+
+    if (dq_params.inputs[0].GetPaddedVal() != 0 || dq_params.outputs[0].GetPaddedVal() != 0)
+        return false;
+
 
     return true;
 }
