@@ -6,21 +6,24 @@
 #include "kernel_selector_utils.h"
 #include <string>
 
+
 namespace kernel_selector {
+static size_t get_match_vector_size(const dynamic_quantize_params& params) {
+    if (params.inputs[0].X().v > 8)
+        return 8;
+
+    auto block_sizes = { 8, 4, 2 };
+    for (auto block_size : block_sizes) {
+        if (params.inputs[0].X().v % block_size == 0) {
+            return block_size;
+        }
+    }
+
+    return 1;
+}
+
 ParamsKey DynamicQuantizeKernelRef::GetSupportedKey() const {
     ParamsKey k;
-    // k.EnableInputDataType(Datatype::F16);
-    // k.EnableInputDataType(Datatype::INT8);
-    // k.EnableOutputDataType(Datatype::F16);
-    // k.EnableOutputDataType(Datatype::INT8);
-    // k.EnableInputLayout(DataLayout::bfyx);
-    // k.EnableOutputLayout(DataLayout::bfyx);
-    // k.EnableTensorOffset();
-    // k.EnableTensorPitches();
-    // k.EnableBatching();
-    // k.EnableDifferentTypes();
-    // k.EnableDynamicShapesSupport();
-
     k.EnableInputDataType(Datatype::F16);
     k.EnableInputDataType(Datatype::F32);
     k.EnableInputDataType(Datatype::INT8);
@@ -46,7 +49,13 @@ ParamsKey DynamicQuantizeKernelRef::GetSupportedKey() const {
 JitConstants DynamicQuantizeKernelRef::GetJitConstants(const dynamic_quantize_params& params) const {
     JitConstants jit = MakeBaseParamsJitConstants(params);
 
+    auto vec_size = get_match_vector_size(params);
+
+    jit.AddConstant(MakeJitConstant("VEC_SIZE", vec_size));
     jit.Merge(GetTensorFriendlyWorkGroupsJit(params.outputs[0]));
+
+    GPU_DEBUG_LOG << "DynamicQuantizeKernelRef VEC_SIZE(" << vec_size << ") input bfyx (" << params.inputs[0].Batch().v
+            << ", " << params.inputs[0].Feature().v << ", " << params.inputs[0].Y().v << ", "  << params.inputs[0].X().v << ")" << std::endl;
 
     return jit;
 }

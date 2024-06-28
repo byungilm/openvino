@@ -6,7 +6,22 @@
 #include "kernel_selector_utils.h"
 #include <string>
 
+
+static constexpr size_t simd = 16;
+
 namespace kernel_selector {
+static size_t get_match_vector_size(const dynamic_quantize_params& params) {
+    auto block_sizes = { 8, 4, 2 };
+
+    for (auto block_size : block_sizes) {
+        if (((params.inputs[0].X().v * params.inputs[0].Y().v) / simd) % block_size == 0) {
+            return block_size;
+        }
+    }
+
+    return 1;
+}
+
 ParamsKey DynamicQuantizeKernelOpt::GetSupportedKey() const {
     ParamsKey k;
     k.EnableInputDataType(Datatype::F16);
@@ -34,7 +49,14 @@ ParamsKey DynamicQuantizeKernelOpt::GetSupportedKey() const {
 JitConstants DynamicQuantizeKernelOpt::GetJitConstants(const dynamic_quantize_params& params) const {
     JitConstants jit = MakeBaseParamsJitConstants(params);
 
+    auto vec_size = get_match_vector_size(params);
+
+    jit.AddConstant(MakeJitConstant("VEC_SIZE", vec_size));
     jit.Merge(GetTensorFriendlyWorkGroupsJit(params.outputs[0]));
+
+    GPU_DEBUG_LOG << "DynamicQuantizeKernelOpt VEC_SIZE(" << vec_size << ") input bfyx (" << params.inputs[0].Batch().v
+            << ", " << params.inputs[0].Feature().v << ", " << params.inputs[0].Y().v << ", "  << params.inputs[0].X().v << ")" << std::endl;
+
 
     return jit;
 }
@@ -92,8 +114,6 @@ KernelsData DynamicQuantizeKernelOpt::GetKernelsData(const Params& params) const
                      static_cast<int>(prim_params.outputs.size()),
                      prim_params.is_shape_agnostic);
 
-    // std::cout << ">> Select dynamic_quantize_kernel_opt : " << prim_params.outputs.size() << std::endl;
-
     return {kd};
 }
 
@@ -118,12 +138,11 @@ bool DynamicQuantizeKernelOpt::Validate(const Params& params) const {
     const auto& dq_params = static_cast<const dynamic_quantize_params&>(params);
 
     // Todo : Add proper exception here
-    if ((dq_params.outputs[0].X().v * dq_params.outputs[0].Y().v % 128) != 0)
+    if (((dq_params.inputs[0].X().v * dq_params.inputs[0].Y().v) % (simd * 2)) != 0)
         return false;
 
     if (dq_params.inputs[0].GetPaddedVal() != 0 || dq_params.outputs[0].GetPaddedVal() != 0)
         return false;
-
 
     return true;
 }
